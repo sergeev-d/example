@@ -3,16 +3,23 @@ package com.example.portal;
 import com.example.portal.db.DBH2ServiceImpl;
 import com.example.portal.db.DBService;
 import com.example.portal.handler.CreateUserHandler;
+import com.example.portal.handler.FailureHandler;
 import com.example.portal.handler.GetUserHandler;
+import com.example.portal.handler.ValidatorHolder;
+import com.example.portal.utils.ResourceParams;
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
 import io.vertx.config.ConfigStoreOptions;
+import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.jdbc.JDBCClient;
+import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
+import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.api.validation.ValidationHandler;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.impl.RouterImpl;
 import org.slf4j.Logger;
@@ -46,13 +53,25 @@ public class PortalBackend {
 
     private void initHttpServer(){
         final Router router = new RouterImpl(vertx);
-        router.post().path("/user").handler(BodyHandler.create()).handler(new CreateUserHandler(dbService));
-        router.get().path("/user/:id").handler(new GetUserHandler(dbService));
+
+        initRoute(router.post().path("/user").handler(BodyHandler.create()), new CreateUserHandler(dbService));
+        initRoute(router.get().path(String.format("/user/:%s", ResourceParams.USER_ID)), new GetUserHandler(dbService));
 
         httpServer.requestHandler(router)
                         .listen(config.getInteger("http.port", 8080));
 
         logger.info("Service is successfully started");
+    }
+
+    private void initRoute(Route route, Handler<RoutingContext> resourceHandler) {
+        if (resourceHandler instanceof ValidatorHolder) {
+            final ValidationHandler validator = ((ValidatorHolder) resourceHandler).getValidation();
+            if (validator != null) {
+                route.handler(validator);
+            }
+        }
+        route.handler(resourceHandler);
+        route.failureHandler(FailureHandler.INSTANCE);
     }
 
     private void initDatabaseService(){

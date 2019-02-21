@@ -1,7 +1,7 @@
 package com.example.portal.db;
 
 import com.example.portal.entity.User;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.Handler;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.jdbc.JDBCClient;
@@ -57,26 +57,31 @@ public class DBH2ServiceImpl implements DBService {
         String sql = "select name, login, password from portal.users where id = ?";
         JsonArray objects = new JsonArray().add(id);
 
-        client.getConnection(conn -> {
-            if (conn.succeeded()){
-                SQLConnection sqlConnection = conn.result();
-                sqlConnection
-                        .setAutoCommit(false, res -> {})
+        client.getConnection(c -> {
+            if (c.succeeded()){
+                SQLConnection conn = c.result();
+                    conn.setAutoCommit(false, res -> {})
                         .queryWithParams(sql, objects, res ->{
                             if (res.succeeded()){
                                 final List<JsonObject> rows = res.result().getRows();
                                 if (!rows.isEmpty()){
                                     final JsonObject user = rows.get(0);
-                                    callback.onSuccess(new User(user.getString("NAME"),
+                                    callback.onSuccess(new User(
+                                            user.getString("NAME"),
                                             user.getString("LOGIN"),
                                             user.getString("PASSWORD"))
                                     );
+                                    conn.commit(commit -> {
+                                        // successfully committed
+                                    });
                                 } else {
                                     callback.userNotFound();
+                                    closeConnection(conn);
                                 }
 
                             } else {
                                 callback.onError(res.cause());
+                                closeConnection(conn);
                             }
                         })
                 ;
@@ -88,15 +93,18 @@ public class DBH2ServiceImpl implements DBService {
     public void init() {
         try {
             server.start();
-            //webServer.start();
-            executeStatement("DROP ALL OBJECTS;", () ->
-                    executeStatement("CREATE SCHEMA PORTAL;", () ->
-                    executeStatement("CREATE TEMP TABLE PORTAL.users (" +
-                    "id IDENTITY PRIMARY KEY, " +
-                    "name VARCHAR(255) NOT NULL, " +
-                    "login VARCHAR(255) NOT NULL, " +
-                    "password VARCHAR(255) NOT NULL)" +
-                    ";", () -> {})));
+
+            client.getConnection(c -> {
+                if (c.succeeded()){
+                    SQLConnection conn = c.result();
+
+                    conn.execute(SQLS.dropObjects(), res ->
+                            conn.execute(SQLS.createSchema(), res2 ->
+                                    conn.execute(SQLS.createTableUser(), res3 -> {
+                            })));
+                }
+            });
+
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
@@ -108,14 +116,9 @@ public class DBH2ServiceImpl implements DBService {
         server.stop();
     }
 
-    private void executeStatement(String sql, OnComplete onComplite){
-        client.getConnection(conn ->
-            conn.result().execute(sql, res -> {
-                if (res.failed()){
-                    throw new RuntimeException(res.cause());
-                }
-                onComplite.done();
-            })
-        );
+    public void closeConnection(SQLConnection connection){
+        if (connection != null){
+            connection.close();
+        }
     }
 }

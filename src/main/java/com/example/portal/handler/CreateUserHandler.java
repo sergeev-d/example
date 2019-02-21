@@ -20,7 +20,7 @@ public class CreateUserHandler implements ValidatorHolder, Handler<RoutingContex
 
     @Override
     public ValidationHandler getValidation() {
-        return HTTPRequestValidationHandler.create().addJsonBodySchema("application/json");
+        return HTTPRequestValidationHandler.create();
     }
 
     @Override
