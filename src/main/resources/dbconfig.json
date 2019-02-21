@@ -1,6 +1,8 @@
 {
-  "url": "jdbc:h2:mem:db",
+  "url": "jdbc:h2:mem:test",
+  "driver_class": "org.h2.Driver",
   "user": "testdb",
   "password": "testdb",
-  "port": 8100
+  "port": 8888
+
 }

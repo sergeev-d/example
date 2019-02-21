@@ -2,14 +2,11 @@ package com.example.portal;
 
 import com.example.portal.db.DBH2ServiceImpl;
 import com.example.portal.db.DBService;
-import com.example.portal.db.OnComplete;
 import com.example.portal.handler.CreateUserHandler;
 import com.example.portal.handler.GetUserHandler;
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
 import io.vertx.config.ConfigStoreOptions;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
@@ -26,19 +23,20 @@ public class PortalBackend {
     private final Vertx vertx;
     private final HttpServer httpServer;
     private DBService dbService;
+    private ConfigRetrieverOptions options;
     private JsonObject config;
 
     public PortalBackend() {
         this.vertx = Vertx.vertx();
         this.httpServer = vertx.createHttpServer(new HttpServerOptions());
-
     }
 
     public PortalBackend run(){
-        initConfig(() -> {
-            JDBCClient jdbcClient = JDBCClient.createShared(vertx, config, "test");
-            dbService = new DBH2ServiceImpl(jdbcClient);
+        initConfigOption();
+        ConfigRetriever.create(vertx, options).getConfig(res -> {
+            this.config = res.result();
 
+            initDatabaseService();
             initDatabase();
             initHttpServer();
         });
@@ -47,29 +45,32 @@ public class PortalBackend {
     }
 
     private void initHttpServer(){
-        Router router = new RouterImpl(vertx);
+        final Router router = new RouterImpl(vertx);
         router.post().path("/user").handler(BodyHandler.create()).handler(new CreateUserHandler(dbService));
         router.get().path("/user/:id").handler(new GetUserHandler(dbService));
 
         httpServer.requestHandler(router)
                         .listen(config.getInteger("http.port", 8080));
 
-
         logger.info("Service is successfully started");
+    }
+
+    private void initDatabaseService(){
+        JDBCClient jdbcClient = JDBCClient.createShared(vertx, config);
+        dbService = new DBH2ServiceImpl(jdbcClient, config.getInteger("port"));
     }
 
     private void initDatabase(){
         dbService.init();
     }
 
-
     public void stop(){
         httpServer.close();
         dbService.stop();
     }
 
-    public void initConfig(OnComplete complete){
-        final ConfigStoreOptions env = new ConfigStoreOptions()
+    private void initConfigOption(){
+        final ConfigStoreOptions server = new ConfigStoreOptions()
                 .setType("file")
                 .setFormat("json")
                 .setConfig(new JsonObject()
@@ -83,19 +84,9 @@ public class PortalBackend {
                         .put("path", "dbconfig.json")
                 );
 
-
-        final ConfigRetrieverOptions options = new ConfigRetrieverOptions().addStore(env).addStore(db);
-        final ConfigRetriever configRetriever = ConfigRetriever.create(vertx, options);
-
-        configRetriever.getConfig(c -> {
-            if (c.succeeded()){
-                this.config = c.result();
-                complete.done();
-            } else {
-                throw new InternalError(c.cause());
-            }
-        });
-
+        this.options = new ConfigRetrieverOptions()
+                .addStore(server)
+                .addStore(db);
     }
 
     public static void main(String[] args) {
