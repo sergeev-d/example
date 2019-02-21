@@ -1,92 +1,105 @@
 package com.example.portal;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.portal.db.DBH2ServiceImpl;
+import com.example.portal.db.DBService;
+import com.example.portal.db.OnComplete;
+import com.example.portal.handler.CreateUserHandler;
+import com.example.portal.handler.GetUserHandler;
+import io.vertx.config.ConfigRetriever;
+import io.vertx.config.ConfigRetrieverOptions;
+import io.vertx.config.ConfigStoreOptions;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
-import io.vertx.core.http.HttpServerResponse;
-import io.vertx.core.http.impl.Http2ServerResponseImpl;
-import io.vertx.core.json.Json;
-import io.vertx.ext.web.Cookie;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.jdbc.JDBCClient;
 import io.vertx.ext.web.Router;
-import io.vertx.ext.web.handler.BasicAuthHandler;
-import io.vertx.ext.web.handler.CookieHandler;
+import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.impl.RouterImpl;
-import org.apache.commons.cli.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class PortalBackend {
     public final static Logger logger = LoggerFactory.getLogger(PortalBackend.class);
-    private int port;
     private final Vertx vertx;
     private final HttpServer httpServer;
+    private DBService dbService;
+    private JsonObject config;
 
-    public PortalBackend(int port) {
-        this.port = port;
+    public PortalBackend() {
         this.vertx = Vertx.vertx();
         this.httpServer = vertx.createHttpServer(new HttpServerOptions());
+
     }
 
     public PortalBackend run(){
-        initHttpServer();
+        initConfig(() -> {
+            JDBCClient jdbcClient = JDBCClient.createShared(vertx, config, "test");
+            dbService = new DBH2ServiceImpl(jdbcClient);
+
+            initDatabase();
+            initHttpServer();
+        });
+
         return this;
     }
 
     private void initHttpServer(){
         Router router = new RouterImpl(vertx);
-        router.route().method(HttpMethod.GET).path("/").handler(routingCtx -> {
-            routingCtx.addCookie(Cookie.cookie("othercookie", "somevalue"));
+        router.post().path("/user").handler(BodyHandler.create()).handler(new CreateUserHandler(dbService));
+        router.get().path("/user/:id").handler(new GetUserHandler(dbService));
 
-            HttpServerResponse response = routingCtx.response();
-            response.putHeader("contentType", "application/json");
-            response.end(Json.encode("{hello world!}"));
-        });
-        router.route().method(HttpMethod.GET).path("/login").handler(routingCtx -> {
-            if (!routingCtx.request().params().contains("user")){
-                routingCtx.fail(400);
-                routingCtx.response().end("User not found");
-            } else {
-                HttpServerResponse response = routingCtx.response();
-                response.putHeader("contentType", "application/json");
-                response.end(Json.encode("{Auth is passed}"));
-            }
+        httpServer.requestHandler(router)
+                        .listen(config.getInteger("http.port", 8080));
 
-        });
 
-        httpServer.requestHandler(router).listen(port);
+        logger.info("Service is successfully started");
+    }
+
+    private void initDatabase(){
+        dbService.init();
     }
 
 
     public void stop(){
         httpServer.close();
+        dbService.stop();
     }
 
+    public void initConfig(OnComplete complete){
+        final ConfigStoreOptions env = new ConfigStoreOptions()
+                .setType("file")
+                .setFormat("json")
+                .setConfig(new JsonObject()
+                        .put("path", "config.json")
+                );
+
+        final ConfigStoreOptions db = new ConfigStoreOptions()
+                .setType("file")
+                .setFormat("json")
+                .setConfig(new JsonObject()
+                        .put("path", "dbconfig.json")
+                );
+
+
+        final ConfigRetrieverOptions options = new ConfigRetrieverOptions().addStore(env).addStore(db);
+        final ConfigRetriever configRetriever = ConfigRetriever.create(vertx, options);
+
+        configRetriever.getConfig(c -> {
+            if (c.succeeded()){
+                this.config = c.result();
+                complete.done();
+            } else {
+                throw new InternalError(c.cause());
+            }
+        });
+
+    }
 
     public static void main(String[] args) {
-        Options options = new Options()
-                .addOption(new Option("p", "port", true, "http port"));
-
-
-        try {
-            final CommandLine parser = new BasicParser().parse(options, args);
-            final String parsePort = parser.getOptionValue("p");
-
-            try {
-                final int port = parsePort != null ? Integer.parseInt(parsePort) : 8080;
-                final PortalBackend portalBackend = new PortalBackend(port).run();
-                Runtime.getRuntime().addShutdownHook(new Thread(portalBackend::stop, "shutdown-hook"));
-            } catch (NumberFormatException e) {
-                System.err.println("Incorrect port value " + parsePort);
-            }
-
-        } catch (ParseException e) {
-            HelpFormatter formatter = new HelpFormatter();
-            formatter.printHelp("Info: ", options);
-        }
-
-
-
+        final PortalBackend portalBackend = new PortalBackend().run();
+        Runtime.getRuntime().addShutdownHook(new Thread(portalBackend::stop, "shutdown-hook"));
     }
 }

@@ -18,7 +18,10 @@ repositories {
 dependencies {
 	implementation('io.vertx:vertx-web:3.6.3')
 	implementation('ch.qos.logback:logback-classic:1.2.3')
-	compile group: 'commons-cli', name: 'commons-cli', version: '1.2'
+	implementation('io.vertx:vertx-config:3.6.3')
+	implementation('io.vertx:vertx-web-api-contract:3.6.3')
+	implementation('com.h2database:h2:1.4.197')
+	implementation('io.vertx:vertx-jdbc-client:3.6.3')
 }
 
 sourceSets {
