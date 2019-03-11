@@ -2,16 +2,14 @@ package com.example.portal;
 
 import com.example.portal.db.DBH2ServiceImpl;
 import com.example.portal.db.DBService;
-import com.example.portal.handler.CreateUserHandler;
-import com.example.portal.handler.FailureHandler;
-import com.example.portal.handler.GetUserHandler;
-import com.example.portal.handler.ValidatorHolder;
+import com.example.portal.handler.*;
 import com.example.portal.utils.ResourceParams;
 import io.vertx.config.ConfigRetriever;
 import io.vertx.config.ConfigRetrieverOptions;
 import io.vertx.config.ConfigStoreOptions;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.json.JsonObject;
@@ -21,9 +19,13 @@ import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.api.validation.ValidationHandler;
 import io.vertx.ext.web.handler.BodyHandler;
+import io.vertx.ext.web.handler.CorsHandler;
 import io.vertx.ext.web.impl.RouterImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class PortalBackend {
     public final static Logger logger = LoggerFactory.getLogger(PortalBackend.class);
@@ -54,13 +56,41 @@ public class PortalBackend {
     private void initHttpServer(){
         final Router router = new RouterImpl(vertx);
 
-        initRoute(router.post().path("/user").handler(BodyHandler.create()), new CreateUserHandler(dbService));
+        final Set<String> allowedHeaders = new HashSet<>();
+        allowedHeaders.add("x-requested-with");
+        allowedHeaders.add("Access-Control-Allow-Origin");
+        allowedHeaders.add("origin");
+        allowedHeaders.add("Content-Type");
+        allowedHeaders.add("accept");
+        allowedHeaders.add("X-PINGARUNER");
+
+        final Set<HttpMethod> allowedMethods = new HashSet<>();
+        allowedMethods.add(HttpMethod.GET);
+        allowedMethods.add(HttpMethod.POST);
+        allowedMethods.add(HttpMethod.OPTIONS);
+        allowedMethods.add(HttpMethod.DELETE);
+        allowedMethods.add(HttpMethod.PATCH);
+        allowedMethods.add(HttpMethod.PUT);
+
+        router.route()
+                .handler(BodyHandler.create())
+                .handler(CorsHandler.create("*")
+                        .allowedHeaders(allowedHeaders)
+                        .allowedMethods(allowedMethods));
+
+        initRoute(router.get().path("/assessments"), new AssessmentsHandler());
+
+//        initRoute(router.get().path("/reg"), new RegistrationHandler());
+//        initRoute(router.post().path("/reg"), new FinalRegistrationHandler());
+        initRoute(router.post().path("/user"), new CreateUserHandler(dbService));
         initRoute(router.get().path(String.format("/user/:%s", ResourceParams.USER_ID)), new GetUserHandler(dbService));
+        initRoute(router.post().path("/login"), new LoginHandler());
 
         httpServer.requestHandler(router)
                         .listen(config.getInteger("http.port", 8080));
 
         logger.info("Service is successfully started");
+
     }
 
     private void initRoute(Route route, Handler<RoutingContext> resourceHandler) {

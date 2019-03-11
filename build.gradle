@@ -22,6 +22,7 @@ dependencies {
 	implementation('io.vertx:vertx-web-api-contract:3.6.3')
 	implementation('com.h2database:h2:1.4.197')
 	implementation('io.vertx:vertx-jdbc-client:3.6.3')
+	implementation('io.vertx:vertx-auth-jwt:3.6.3')
 }
 
 sourceSets {
